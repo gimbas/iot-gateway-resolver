@@ -7,7 +7,7 @@
         {
             "name": "Debug",
             "cwd": "${workspaceRoot}",
-            "executable": "./bin/v1.gateway.elf",
+            "executable": "./bin/v1.gateway-resolver.elf",
             "request": "launch",
             "type": "cortex-debug",
             "preLaunchTask": "Build",

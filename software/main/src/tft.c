@@ -328,7 +328,7 @@ tft_button_t *tft_button_create(uint8_t ubID, uint16_t usX, uint16_t usY, uint16
     if(!pNewButton)
         return NULL;
 
-    memset(pNewButton, 0, sizeof(rfm69_pending_packet_t));
+    memset(pNewButton, 0, sizeof(tft_button_t));
 
     pNewButton->ubID = ubID;
     pNewButton->usOriginX = usX;

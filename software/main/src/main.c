@@ -20,26 +20,8 @@
 #include "qspi.h"
 #include "usart.h"
 #include "i2c.h"
-#include "rfm69.h"
-#include "radio_protocol.h"
-#include "ws2812b.h"
-#include "bmp280.h"
-#include "ccs811.h"
-#include "si7021.h"
-#include "si7210.h"
-#include "ft6x36.h"
-#include "ili9488.h"
-#include "tft.h"
-#include "images.h"
-#include "fonts.h"
 
 // Structs
-
-// Radio config
-#define RADIO_GATEWAY_ID        1
-#define RADIO_NODE_ID           2
-#define RADIO_NETWORK_ID        193
-#define RADIO_AES_KEY           "TheThiccGatewayy" // Needs to be exactly 16 bytes, no zeros allowed
 
 // Forward declarations
 static void reset() __attribute__((noreturn));
@@ -50,26 +32,14 @@ static uint32_t get_free_ram();
 static void get_device_name(char *pszDeviceName, uint32_t ulDeviceNameSize);
 static uint16_t get_device_revision();
 
-void touch_button_callback(uint8_t ubButtonID);
-void mag_trigger_callback();
-
 // Variables
-static uint8_t ubScreenNum = 0;
-tft_graph_t *pGraph = NULL;
-tft_terminal_t *pTerminal = NULL;
-tft_textbox_t *pTextbox = NULL;
-tft_button_t *pButtons[5] = {NULL};
+
 
 // ISRs
-void _acmp0_1_isr()
-{
-    uint32_t ulFlags = ACMP0->IFC;
-
-    if(ulFlags & ACMP_IFC_EDGE)
-    {
-        DBGPRINTLN_CTX("VBat status: %s", (ACMP0->STATUS & ACMP_STATUS_ACMPOUT) ? "HIGH" : "LOW");
-    }
-}
+//void _acmp0_1_isr()
+//{
+//
+//}
 
 // Functions
 void reset()
@@ -80,7 +50,7 @@ void reset()
 }
 void sleep()
 {
-    rtcc_set_alarm(rtcc_get_time() + 5);
+    //rtcc_set_alarm(rtcc_get_time() + 5);
 
     SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk; // Configure Deep Sleep (EM2/3)
 
@@ -264,15 +234,6 @@ int init()
     fDVDDHighThresh = fDVDDLowThresh + 0.026f; // Hysteresis from datasheet
     fIOVDDHighThresh = fIOVDDLowThresh + 0.026f; // Hysteresis from datasheet
 
-    usart0_init(12000000, 0, USART_SPI_MSB_FIRST, 2, 2, 2);  // SPI0 at 12MHz(clock skipping) on Location 2 MISO:PC10 MOSI:PC11 CLK:PC9 ESP8266 WIFI-COPROCESSOR
-    USART0->CTRL |= UART_CTRL_SMSDELAY;
-    usart1_init(18000000, 0, USART_SPI_MSB_FIRST, 1, 1, 1);  // SPI1 at 18MHz on Location 1 MISO:PD1 MOSI:PD0 CLK:PD2 ILI9488 Display
-    usart2_init(115200, UART_FRAME_STOPBITS_ONE | UART_FRAME_PARITY_NONE | USART_FRAME_DATABITS_EIGHT, 0, 0, -1, -1); // USART2 at 115200Baud on Location 0 RTS-PC0 CTS-PC1 TX-PC2 RX-PC3 GSM
-    usart3_init(9000000, 0, USART_SPI_MSB_FIRST, 0, 0, 0); // SPI3 at 9MHz on Location 0 MISO-PA1 MOSI-PA0 CLK-PA2 RFM
-
-    i2c0_init(I2C_FAST, 6, 6); // Init I2C0 at 400 kHz on location 6 SCL:PE13 SDA:PE12 Sensors
-    i2c1_init(I2C_FAST, 1, 1); // Init I2C1 at 400 kHz on location 1 SCL:PB12 SDA:PB11 TFT Touch Controller
-
     char szDeviceName[32];
 
     get_device_name(szDeviceName, 32);
@@ -346,139 +307,18 @@ int init()
     DBGPRINTLN_CTX("EMU - VBAT Voltage: %.2f mV", adc_get_vbat());
     DBGPRINTLN_CTX("EMU - VIN Voltage: %.2f mV", adc_get_vin());
 
-    play_sound(3000, 250);
-    delay_ms(100);
-
-    // Assert CCS811 control signals otherwise the I2C scan won't detect it
-    CCS811_UNRESET();
-    delay_ms(10);
-    CCS811_WAKE();
-
-    DBGPRINTLN_CTX("Scanning I2C bus 0...");
-
-    for(uint8_t a = 0x08; a < 0x78; a++)
-        if(i2c0_write(a, NULL, 0, I2C_STOP))
-            DBGPRINTLN_CTX("  Address 0x%02X ACKed!", a);
-
-    DBGPRINTLN_CTX("Scanning I2C bus 1...");
-
-    for(uint8_t a = 0x08; a < 0x78; a++)
-        if(i2c1_write(a, NULL, 0, I2C_STOP))
-            DBGPRINTLN_CTX("  Address 0x%02X ACKed!", a);
-
-    if(bmp280_init())
-        DBGPRINTLN_CTX("BMP280 init OK!");
-    else
-        DBGPRINTLN_CTX("BMP280 init NOK!");
-
-    if(ccs811_init())
-        DBGPRINTLN_CTX("CCS811 init OK!");
-    else
-        DBGPRINTLN_CTX("CCS811 init NOK!");
-
-    if(si7021_init())
-        DBGPRINTLN_CTX("SI7021 init OK!");
-    else
-        DBGPRINTLN_CTX("SI7021 init NOK!");
-
-    if(si7210_init())
-        DBGPRINTLN_CTX("SI7210 init OK!");
-    else
-        DBGPRINTLN_CTX("SI7210 init NOK!");
-
-    if(ili9488_init())
-        DBGPRINTLN_CTX("ILI9488 init OK!");
-    else
-        DBGPRINTLN_CTX("ILI9488 init NOK!");
-
-    if(ft6x36_init())
-        DBGPRINTLN_CTX("FT6236 init OK!");
-    else
-        DBGPRINTLN_CTX("FT6236 init NOK!");
-
-    if(rfm69_init(RADIO_GATEWAY_ID, RADIO_NETWORK_ID, RADIO_AES_KEY))
-        DBGPRINTLN_CTX("RFM69 init OK!");
-    else
-        DBGPRINTLN_CTX("RFM69 init NOK!");
-
-    ws2812b_init();
-
     return 0;
 }
 int main()
 {
-    play_sound(3000, 50);
-    delay_ms(50);
-    play_sound(3000, 50);
-
     // CLK OUT to check if the clock was properly calibrated
     //CMU->ROUTELOC0 = CMU_ROUTELOC0_CLKOUT1LOC_LOC1;
     //CMU->ROUTEPEN |= CMU_ROUTEPEN_CLKOUT1PEN;
     //CMU->CTRL |= CMU_CTRL_CLKOUTSEL1_HFXO;
 
     // ----------------- Testing battery monitoring with OpAmp + Analog Comparator ----------------- //
-    CMU->HFPERCLKEN1 |= CMU_HFPERCLKEN1_VDAC0;
 
-    VDAC0->OPA[1].CTRL = VDAC_OPA_CTRL_OUTSCALE_FULL | VDAC_OPA_CTRL_HCMDIS | (0x3 << _VDAC_OPA_CTRL_DRIVESTRENGTH_SHIFT); // Enable full drive strength, no rail-to-rail inputs
-    VDAC0->OPA[1].TIMER = (0x001 << _VDAC_OPA_TIMER_SETTLETIME_SHIFT) | (0x05 << _VDAC_OPA_TIMER_WARMUPTIME_SHIFT) | (0x00 << _VDAC_OPA_TIMER_STARTUPDLY_SHIFT); // Recommended settings
-    VDAC0->OPA[1].MUX = VDAC_OPA_MUX_RESSEL_RES1 | VDAC_OPA_MUX_RESINMUX_DISABLE | VDAC_OPA_MUX_NEGSEL_UG | VDAC_OPA_MUX_POSSEL_POSPAD; // Unity gain with POSPAD as non-inverting input
-    VDAC0->OPA[1].OUT = 0; // Disable all outputs (NEXT1 is always connected)
-    VDAC0->OPA[1].CAL = DEVINFO->OPA1CAL7; // Calibration for DRIVESTRENGTH = 0x3, INCBW = 0
-
-    VDAC0->CMD = VDAC_CMD_OPA1EN; // Enable OPA1
-    while(!(VDAC0->STATUS & VDAC_STATUS_OPA1ENS)); // Wait for it to be enabled
-
-    CMU->HFPERCLKEN0 |= CMU_HFPERCLKEN0_ACMP0;
-
-    ACMP0->CTRL = ACMP_CTRL_FULLBIAS | (0x20 << _ACMP_CTRL_BIASPROG_SHIFT) | ACMP_CTRL_IFALL | ACMP_CTRL_IRISE | ACMP_CTRL_INPUTRANGE_GTVDDDIV2 | ACMP_CTRL_ACCURACY_HIGH | ACMP_CTRL_PWRSEL_AVDD | ACMP_CTRL_GPIOINV_NOTINV | ACMP_CTRL_INACTVAL_LOW;
-    ACMP0->INPUTSEL = ACMP_INPUTSEL_VBSEL_2V5 | ACMP_INPUTSEL_VASEL_VDD | ACMP_INPUTSEL_NEGSEL_VBDIV | ACMP_INPUTSEL_POSSEL_DACOUT1;
-    ACMP0->HYSTERESIS0 = 48 << _ACMP_HYSTERESIS0_DIVVB_SHIFT; // VBat is high when >= 3.828125 V
-    ACMP0->HYSTERESIS1 = 44 << _ACMP_HYSTERESIS1_DIVVB_SHIFT; // VBat is low when <= 3.515625 V
-
-    ACMP0->IFC = _ACMP_IFC_MASK; // Clear pending IRQs
-    IRQ_CLEAR(ACMP0_IRQn); // Clear pending vector
-    IRQ_SET_PRIO(ACMP0_IRQn, 1, 0); // Set priority 1,0
-    IRQ_ENABLE(ACMP0_IRQn); // Enable vector
-    ACMP0->IEN |= ACMP_IEN_EDGE; // Enable EDGE interrupt
-
-    ACMP0->CTRL |= ACMP_CTRL_EN; // Enable ACMP0
-    while(!(ACMP0->STATUS & ACMP_STATUS_ACMPACT)); // Wait for it to be enabled
     // ----------------- Testing battery monitoring with OpAmp + Analog Comparator ----------------- //
-
-    // BMP280 info & configuration
-    DBGPRINTLN_CTX("BMP280 version: 0x%02X", bmp280_read_version());
-
-    bmp280_write_config(BMP280_STANDBY_1000MS | BMP280_FILTER_8);
-    bmp280_write_control(BMP280_TEMP_OS4 | BMP280_PRESSURE_OS16 | BMP280_MODE_NORMAL);
-    DBGPRINTLN_CTX("BMP280 write control & config!");
-
-    // CCS811 info & configuration
-    DBGPRINTLN_CTX("CCS811 Hardware version: %hhu", ccs811_read_hw_version());
-
-    uint16_t usCCSBootVersion = ccs811_read_boot_version();
-
-    DBGPRINTLN_CTX("CCS811 Bootloader version: %hu.%hu.%hu", CCS811_SW_VERSION_MAJOR(usCCSBootVersion), CCS811_SW_VERSION_MINOR(usCCSBootVersion), CCS811_SW_VERSION_TRIVIAL(usCCSBootVersion));
-
-    ccs811_app_start();
-
-    uint16_t usCCSAppVersion = ccs811_read_app_version();
-
-    DBGPRINTLN_CTX("CCS811 App version: %hu.%hu.%hu", CCS811_SW_VERSION_MAJOR(usCCSAppVersion), CCS811_SW_VERSION_MINOR(usCCSAppVersion), CCS811_SW_VERSION_TRIVIAL(usCCSAppVersion));
-
-    ccs811_write_meas_mode(CCS811_DRIVE_MODE_1S);
-    DBGPRINTLN_CTX("CCS811 Meas. mode config!");
-
-    // SI7021 info & configuration
-    DBGPRINTLN_CTX("SI7021 UID: 0x%016llX", si7021_read_unique_id());
-    DBGPRINTLN_CTX("SI7021 Firmware version: 0x%02X", si7021_read_firmware_version());
-
-    si7021_write_user(SI7021_USER_RES_RH12_T14 | SI7021_USER_HEATER_OFF);
-    DBGPRINTLN_CTX("SI7021 write user register!");
-
-    // SI7210 info & configuration
-    DBGPRINTLN_CTX("SI7210 ID: 0x%04X", si7210_get_chip_id());
-    DBGPRINTLN_CTX("SI7210 SN: 0x%08lX", si7210_get_serial_num());
-    si7210_set_trigger_callback(mag_trigger_callback);
 
     // QSPI Flash info
     uint8_t ubFlashUID[8];
@@ -488,270 +328,61 @@ int main()
     DBGPRINTLN_CTX("QSPI Flash UID: %02X%02X%02X%02X%02X%02X%02X%02X", ubFlashUID[0], ubFlashUID[1], ubFlashUID[2], ubFlashUID[3], ubFlashUID[4], ubFlashUID[5], ubFlashUID[6], ubFlashUID[7]);
     DBGPRINTLN_CTX("QSPI Flash JEDEC ID: %06X", qspi_flash_read_jedec_id());
 
-    // Wifi init
-    WIFI_SELECT();
-    WIFI_RESET();
-    delay_ms(10);
-    WIFI_UNRESET();
-    delay_ms(100);
-    WIFI_UNSELECT();
+    // ----------------- init DAC ----------------- //
+    CMU->HFPERCLKEN1 |= CMU_HFPERCLKEN1_VDAC0;
 
-    // GSM init
-    GSM_PWR_KEY_SET();
-    delay_ms(1000);
-    GSM_PWR_KEY_RSET();
+    VDAC0->CTRL = VDAC_CTRL_WARMUPMODE_KEEPINSTANDBY | (0x23 << _VDAC_CTRL_PRESC_SHIFT) | VDAC_CTRL_REFSEL_2V5LN;  // VDAC Keep in Stdby, DAC_CLK = HFPERCLK / 36, 2.5V low noise Ref
+    VDAC0->CH0CTRL = VDAC_CH0CTRL_TRIGMODE_SW | VDAC_CH0CTRL_CONVMODE_CONTINUOUS; // DACconversion triggered by sw write to data, continuous conversion
 
-    // TFT Controller info
-    DBGPRINTLN_CTX("ILI9488 ID: 0x%06X", ili9488_read_id());
+    VDAC0->CAL = DEVINFO->VDAC0MAINCAL;
 
-    // TFT Touch info
-    DBGPRINTLN_CTX("FT6236 Vendor ID: 0x%02X", ft6x36_get_vendor_id());
-    DBGPRINTLN_CTX("FT6236 Chip ID: 0x%02X", ft6x36_get_chip_id());
-    DBGPRINTLN_CTX("FT6236 Firmware V: 0x%02X", ft6x36_get_firmware_version());
+    VDAC0->OPA[0].CTRL = VDAC_OPA_CTRL_OUTSCALE_FULL | (0x3 << _VDAC_OPA_CTRL_DRIVESTRENGTH_SHIFT); // Enable full drive strength, rail-to-rail inputs
+    VDAC0->OPA[0].TIMER = (0x001 << _VDAC_OPA_TIMER_SETTLETIME_SHIFT) | (0x05 << _VDAC_OPA_TIMER_WARMUPTIME_SHIFT) | (0x00 << _VDAC_OPA_TIMER_STARTUPDLY_SHIFT); // Recommended settings
+    VDAC0->OPA[0].MUX = VDAC_OPA_MUX_RESSEL_RES0 | VDAC_OPA_MUX_GAIN3X | VDAC_OPA_MUX_RESINMUX_VSS | VDAC_OPA_MUX_NEGSEL_OPATAP | VDAC_OPA_MUX_POSSEL_DAC; // Unity gain with DAC as non-inverting input
+    VDAC0->OPA[0].OUT = VDAC_OPA_OUT_MAINOUTEN; // Drive the main outp
+    VDAC0->OPA[0].CAL = DEVINFO->OPA0CAL7; // Calibration for DRIVESTRENGTH = 0x3, INCBW = 0
 
-    /* - - - - - - - - TFT init - - - - - - - - -*/
-    tft_init();
-    tft_set_button_callback(touch_button_callback);
-    tft_bl_init(2000); // Init backlight PWM at 2 kHz
-    tft_bl_set(0); // Set backlight to 0%
-    tft_display_on(); // Turn display on
-    tft_set_rotation(ILI9488_VERTICAL); // Set rotation 1 (horizontal, ribbon to the right)
-    tft_fill_screen(RGB565_BLACK); // Fill display
+    VDAC0->CMD = VDAC_CMD_OPA0EN; // Enable OPA0
+    while(!(VDAC0->STATUS & VDAC_STATUS_OPA0ENS)); // Wait for it to be enabled
 
-    pGraph = tft_graph_create(60, 30, 220, 360, 0, 30, 5, 25, 35, 0.5, 1, "%.0f", "%.2f", "Temperature", "t", "C", &xSans9pFont, RGB565_WHITE, RGB565_BLACK, RGB565_YELLOW, RGB565_BLACK, RGB565_DARKGREY);
-    if(!pGraph)
-    {
-        DBGPRINTLN_CTX("Could not allocate graph");
-        while(1);
-    }
+    VDAC0->CMD = VDAC_CMD_CH0EN;    // Enable VDAC0CH0
+    while(!(VDAC0->STATUS & VDAC_STATUS_CH0ENS)); // Wait for it to be enabled
 
-    pTerminal = tft_terminal_create(10, 10, 18, 300, &xSans9pFont, RGB565_GREEN, RGB565_BLACK);
-    if(!pTerminal)
-    {
-        DBGPRINTLN_CTX("Could not allocate terminal");
-        while(1);
-    }
+    VDAC0->CH0DATA = 1024;
+    // ----------------- init DAC ----------------- //
 
-    pTextbox = tft_textbox_create(15, 70, 6, 295, 0, 0, &xSans9pFont, RGB565_BLUE, RGB565_WHITE);
-    if(!pTextbox)
-    {
-        DBGPRINTLN_CTX("Could not allocate textbox");
-        while(1);
-    }
+    // ----------------- init ADC ----------------- //
 
-    pButtons[0] = tft_button_create(0, 10, 420, 50, 50);
-    if(!pButtons[0])
-    {
-        DBGPRINTLN_CTX("Could not allocate button");
-        while(1);
-    }
+    // ----------------- init ADC ----------------- //
 
-    pButtons[1] = tft_button_create(1, 70, 420, 50, 50);
-    if(!pButtons[1])
-    {
-        DBGPRINTLN_CTX("Could not allocate button");
-        while(1);
-    }
+    // ----------------- init DMA ----------------- //
 
-    pButtons[2] = tft_button_create(2, 130, 420, 50, 50);
-    if(!pButtons[2])
-    {
-        DBGPRINTLN_CTX("Could not allocate button");
-        while(1);
-    }
-
-    pButtons[3] = tft_button_create(3, 190, 420, 50, 50);
-    if(!pButtons[3])
-    {
-        DBGPRINTLN_CTX("Could not allocate button");
-        while(1);
-    }
-
-    pButtons[4] = tft_button_create(4, 250, 420, 50, 50);
-    if(!pButtons[4])
-    {
-        DBGPRINTLN_CTX("Could not allocate button");
-        while(1);
-    }
-
-    touch_button_callback(4);
-
-    tft_bl_set(0.5f); // Set backlight to 50%
-
-    /* - - - - - - - - TFT init - - - - - - - - -*/
+    // ----------------- init DMA ----------------- //
 
     while(1)
     {
         /* - - - - - - - - Library Tasks - - - - - - - - -*/
-        rfm69_tick();
-        ft6x36_tick();
+
         /* - - - - - - - - Library Tasks - - - - - - - - -*/
 
         /* - - - - - - - - Main Tasks - - - - - - - - -*/
-        static uint64_t ullLastLedUpdate = 0;
+        static uint64_t ullLastTaskTime = 0;
 
-        if(g_ullSystemTick > (ullLastLedUpdate + 1000))
+        if(g_ullSystemTick > (ullLastTaskTime + 1000))
         {
-            uint32_t ulColor = trng_pop_random();
 
-            ws2812b_set_color(0, (uint8_t)((ulColor >> 16) & 0xFF), (uint8_t)((ulColor >> 8) & 0xFF), (uint8_t)(ulColor & 0xFF));
-
-            ullLastLedUpdate = g_ullSystemTick;
-        }
-
-        static uint64_t ullLastTftRoutine = 0;
-
-        if(g_ullSystemTick > (ullLastTftRoutine + 1000))
-        {
-            static uint8_t ubCount = 0;
-
-            switch(ubScreenNum)
-            {
-                case 1: // graph
-
-                    if(ubCount == 31)
-                    {
-                        tft_graph_clear(pGraph);
-                        tft_graph_draw_frame(pGraph);
-                        ubCount = 0;
-                    }
-
-                    float fCount = ubCount;
-                    float fTemp = bmp280_read_temperature();
-
-                    tft_graph_draw_data(pGraph, &fCount, &fTemp, 1);
-
-                    ubCount++;
-                    break;
-
-                case 2: // terminal
-                    if(pTerminal->ubUpdatePending)
-                        tft_terminal_update(pTerminal);
-                    break;
-
-                case 3: // text box
-                    tft_textbox_goto(pTextbox, 0, 0, 1);
-                    tft_textbox_set_color(pTextbox, RGB565_BLUE, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "ADC Temp: ");
-                    tft_textbox_set_color(pTextbox, RGB565_RED, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "%.2f\n\r", adc_get_temperature());
-                    tft_textbox_set_color(pTextbox, RGB565_BLUE, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "EMU Temp: ");
-                    tft_textbox_set_color(pTextbox, RGB565_RED, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "%.2f\n\r", emu_get_temperature());
-                    tft_textbox_set_color(pTextbox, RGB565_BLUE, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "RTCC Time: ");
-                    tft_textbox_set_color(pTextbox, RGB565_RED, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "%lu\n\r", rtcc_get_time());
-                    tft_textbox_set_color(pTextbox, RGB565_BLUE, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "Battery State: ");
-                    tft_textbox_set_color(pTextbox, RGB565_RED, RGB565_WHITE);
-                    switch(((BAT_STDBY() << 1) | BAT_CHRG()) & 0x03)
-                    {
-                        case 0b00:
-                            tft_textbox_printf(pTextbox, "No Vin\n\r");
-                            break;
-                        case 0b01:
-                            tft_textbox_printf(pTextbox, "Charging\n\r");
-                            break;
-                        case 0b10:
-                            tft_textbox_printf(pTextbox, "Charged\n\r");
-                            break;
-                        case 0b11:
-                            tft_textbox_printf(pTextbox, "Err\n\r");
-                            break;
-                    }
-                    tft_textbox_set_color(pTextbox, RGB565_BLUE, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "3V3 Fault: ");
-                    tft_textbox_set_color(pTextbox, RGB565_RED, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "%hhu\n\r", VREG_ERR());
-                    tft_textbox_set_color(pTextbox, RGB565_BLUE, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "Button states (1|2|3): ");
-                    tft_textbox_set_color(pTextbox, RGB565_RED, RGB565_WHITE);
-                    tft_textbox_printf(pTextbox, "%hhu|%hhu|%hhu", BTN_1_STATE(), BTN_2_STATE(), BTN_3_STATE());
-                    break;
-
-                default:
-                    break;
-            }
-
-            ullLastTftRoutine = g_ullSystemTick;
+            ullLastTaskTime = g_ullSystemTick;
         }
 
         static uint64_t ullLastSwoPrint = 0;
 
-        if(g_ullSystemTick > (ullLastSwoPrint + 10000))
+        if(g_ullSystemTick > (ullLastSwoPrint + 1000))
         {
 
             DBGPRINTLN_CTX("ADC Temp: %.2f", adc_get_temperature());
             DBGPRINTLN_CTX("EMU Temp: %.2f", emu_get_temperature());
             DBGPRINTLN_CTX("RTCC Time: %lu", rtcc_get_time());
-            switch(((BAT_STDBY() << 1) | BAT_CHRG()) & 0x03)
-            {
-                case 0b00:
-                    DBGPRINTLN_CTX("Battery State: No Vin");
-                    break;
-                case 0b01:
-                    DBGPRINTLN_CTX("Battery State: Charging");
-                    break;
-                case 0b10:
-                    DBGPRINTLN_CTX("Battery State: Charged");
-                    break;
-                case 0b11:
-                    DBGPRINTLN_CTX("Battery State: Err");
-                    break;
-            }
             DBGPRINTLN_CTX("3V3 Fault: %hhu", VREG_ERR());
-            DBGPRINTLN_CTX("Button states (1|2|3): %hhu|%hhu|%hhu", BTN_1_STATE(), BTN_2_STATE(), BTN_3_STATE());
-
-            DBGPRINTLN_CTX("USART2 Available: %u", usart2_available());
-
-            if(usart2_available())
-            {
-                DBGPRINT_CTX("Data: [");
-
-                while(usart2_available())
-                    DBGPRINT("%c", usart2_read_byte());
-
-                DBGPRINTLN("]");
-            }
-
-            float fTemp = bmp280_read_temperature();
-            float fPress = bmp280_read_pressure();
-
-            tft_terminal_printf(pTerminal, 0, "BMP280 Temperature: %.2f C\n", fTemp);
-            tft_terminal_printf(pTerminal, 0, "BMP280 Pressure: %.2f hPa\n", fPress);
-
-            DBGPRINTLN_CTX("BMP280 Temperature: %.2f C", fTemp);
-            DBGPRINTLN_CTX("BMP280 Pressure: %.2f hPa", fPress);
-
-            uint16_t usETVOC = ccs811_read_etvoc();
-            uint16_t usECO2 = ccs811_read_eco2();
-
-            tft_terminal_printf(pTerminal, 0, "CCS811 eTVOC: %hu ppb\n", usETVOC);
-            tft_terminal_printf(pTerminal, 0, "CCS811 eCO2: %hu ppm\n", usECO2);
-
-            DBGPRINTLN_CTX("CCS811 eTVOC: %hu ppb", usETVOC);
-            DBGPRINTLN_CTX("CCS811 eCO2: %hu ppm", usECO2);
-
-            float fSITemp = si7021_read_temperature();
-            float fSIHumid = si7021_read_humidity();
-
-            tft_terminal_printf(pTerminal, 0, "SI7021 Temperature: %.2f C\n", fSITemp);
-            tft_terminal_printf(pTerminal, 0, "SI7021 Humidity: %.1f %%RH\n", fSIHumid);
-
-            DBGPRINTLN_CTX("SI7021 Temperature: %.2f C", fSITemp);
-            DBGPRINTLN_CTX("SI7021 Humidity: %.1f %%RH", fSIHumid);
-
-            float fMagField = si7210_get_data();
-
-            tft_terminal_printf(pTerminal, 0, "SI7210 Field: %.2f mT\n", fMagField);
-
-            DBGPRINTLN_CTX("SI7210 Field: %.2f mT", fMagField);
-
-            tft_terminal_printf(pTerminal, 0, "Free RAM: %lu KiB\n", get_free_ram() >> 10);
-
-            play_sound(2700, 10);
 
             ullLastSwoPrint = g_ullSystemTick;
         }
@@ -759,167 +390,9 @@ int main()
         /* - - - - - - - - Main Tasks - - - - - - - - -*/
 
         /* - - - - - - - - Button Routines - - - - - - - - -*/
-        static uint8_t ubLastBtn1State = 0;
-        static uint8_t ubLastBtn2State = 0;
-        static uint8_t ubLastBtn3State = 0;
 
-        if(BTN_1_STATE() && (ubLastBtn1State != 1))
-        {
-            ubLastBtn1State = 1;
-        }
-        else if(!BTN_1_STATE() && (ubLastBtn1State != 0))
-        {
-            ubLastBtn1State = 0;
-        }
-
-        if(BTN_2_STATE() && (ubLastBtn2State != 1))
-        {
-            ubLastBtn2State = 1;
-        }
-        else if(!BTN_2_STATE() && (ubLastBtn2State != 0))
-        {
-            ubLastBtn2State = 0;
-        }
-
-        if(BTN_3_STATE() && (ubLastBtn3State != 1))
-        {
-            ubLastBtn3State = 1;
-        }
-        else if(!BTN_3_STATE() && (ubLastBtn3State != 0))
-        {
-            //usart2_write_byte('A');
-            //usart2_write_byte('T');
-            //usart2_write_byte('\r');
-            //usart2_write_byte('\n');
-
-            uint8_t ubNBytes = 37;
-
-            uint8_t ubBuf[ubNBytes];
-            memset(ubBuf, 0x00, ubNBytes);
-
-            for(uint8_t ubI = 0; ubI < ubNBytes; ubI++)
-                ubBuf[ubI] = (uint8_t)(trng_pop_random() & 0xFF);
-
-            ubBuf[0] = 0x02;
-            //ubBuf[1] = 0x05;
-
-            DBGPRINTLN_CTX("Transfering %d byte(s) to wifi-coprocessor...", ubNBytes);
-            DBGPRINTLN_CTX("Content:");
-            for(uint8_t ubI = 0; ubI < ubNBytes; ubI++)
-                DBGPRINTLN_CTX("\t0x%02X", ubBuf[ubI]);
-
-            WIFI_UNSELECT();
-            delay_ms(10);
-
-            WIFI_SELECT();
-            usart0_spi_transfer(ubBuf, ubNBytes, ubBuf);
-            WIFI_UNSELECT();
-
-            DBGPRINTLN_CTX("Received:");
-            for(uint8_t ubI = 0; ubI < ubNBytes; ubI++)
-                DBGPRINTLN_CTX("\t0x%02X", ubBuf[ubI]);
-
-            ubLastBtn3State = 0;
-        }
         /* - - - - - - - - Button Routines - - - - - - - - -*/
     }
 
     return 0;
-}
-
-void touch_button_callback(uint8_t ubButtonID)
-{
-    switch(ubButtonID)
-    {
-        case 0: // image
-            if(ubScreenNum != 0)
-            {
-                ubScreenNum = 0;
-                tft_fill_screen(RGB565_WHITE);
-                for(uint8_t x = 0; x < 4; x++)
-                {
-                    for(uint8_t y = 0; y < 6; y++)
-                    {
-                        tft_draw_image(&xPepeImage, 32 + (x * 64), 32 + (y * 64));
-                    }
-                }
-                tft_button_draw(pButtons[0], "img", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[1], "grph", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[2], "trm", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[3], "txt", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[4], "blnk", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-            }
-            DBGPRINTLN_CTX("Button 0 Pressed!");
-            break;
-
-        case 1: // graph
-            if(ubScreenNum != 1)
-            {
-                ubScreenNum = 1;
-                tft_fill_screen(RGB565_DARKGREY);
-                tft_graph_draw_frame(pGraph);
-                tft_button_draw(pButtons[0], "img", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[1], "grph", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[2], "trm", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[3], "txt", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[4], "blnk", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-            }
-            DBGPRINTLN_CTX("Button 1 Pressed!");
-            break;
-
-        case 2: // terminal
-            if(ubScreenNum != 2)
-            {
-                ubScreenNum = 2;
-                tft_fill_screen(RGB565_BLACK);
-                tft_terminal_update(pTerminal);
-                tft_button_draw(pButtons[0], "img", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[1], "grph", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[2], "trm", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[3], "txt", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[4], "blnk", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-            }
-            DBGPRINTLN_CTX("Button 2 Pressed!");
-            break;
-
-        case 3: // text box
-        if(ubScreenNum != 3)
-            {
-                ubScreenNum = 3;
-                tft_fill_screen(RGB565_WHITE);
-                tft_draw_rectangle(10, 65, 295 + 15 + 5, 75 + tft_get_text_height(&xSans9pFont, 6), RGB565_DARKGREEN, 1);
-                tft_textbox_clear(pTextbox);
-                tft_printf(&xSans18pFont, 10, 10, RGB565_DARKGREY, RGB565_WHITE, "Display is the wey");
-                tft_button_draw(pButtons[0], "img", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[1], "grph", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[2], "trm", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[3], "txt", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[4], "blnk", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-            }
-            DBGPRINTLN_CTX("Button 3 Pressed!");
-            break;
-
-        case 4: // blank
-            if(ubScreenNum != 4)
-            {
-                ubScreenNum = 4;
-                tft_fill_screen(RGB565_BLACK);
-                tft_button_draw(pButtons[0], "img", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[1], "grph", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[2], "trm", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[3], "txt", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-                tft_button_draw(pButtons[4], "blnk", &xSans9pFont, RGB565_CYAN, RGB565_BLACK);
-            }
-            DBGPRINTLN_CTX("Button 4 Pressed!");
-            break;
-
-        default:
-            DBGPRINTLN_CTX("Sum Ting Wong");
-            break;
-    }
-}
-void mag_trigger_callback()
-{
-    DBGPRINTLN_CTX("Mag Switch Triggered!");
-    DBGPRINTLN_CTX("SI7210 Field: %.5f mT", si7210_get_data());
 }
