@@ -33,7 +33,8 @@ static void get_device_name(char *pszDeviceName, uint32_t ulDeviceNameSize);
 static uint16_t get_device_revision();
 
 // Variables
-
+static uint16_t *pusSineBuffer = NULL;
+static ldma_descriptor_t __attribute__ ((aligned (4))) pDMADescriptor[1];
 
 // ISRs
 //void _acmp0_1_isr()
@@ -328,6 +329,10 @@ int main()
     DBGPRINTLN_CTX("QSPI Flash UID: %02X%02X%02X%02X%02X%02X%02X%02X", ubFlashUID[0], ubFlashUID[1], ubFlashUID[2], ubFlashUID[3], ubFlashUID[4], ubFlashUID[5], ubFlashUID[6], ubFlashUID[7]);
     DBGPRINTLN_CTX("QSPI Flash JEDEC ID: %06X", qspi_flash_read_jedec_id());
 
+    #define VDAC_FREQ 5000
+    #define VDAC_N_SAMPLE 64
+    #define VDAC_DMA_CH 12
+
     // ----------------- init DAC ----------------- //
     CMU->HFPERCLKEN1 |= CMU_HFPERCLKEN1_VDAC0;
 
@@ -337,7 +342,7 @@ int main()
     VDAC0->CAL = DEVINFO->VDAC0MAINCAL;
 
     VDAC0->OPA[0].CTRL = VDAC_OPA_CTRL_OUTSCALE_FULL | (0x3 << _VDAC_OPA_CTRL_DRIVESTRENGTH_SHIFT); // Enable full drive strength, rail-to-rail inputs
-    VDAC0->OPA[0].TIMER = (0x001 << _VDAC_OPA_TIMER_SETTLETIME_SHIFT) | (0x05 << _VDAC_OPA_TIMER_WARMUPTIME_SHIFT) | (0x00 << _VDAC_OPA_TIMER_STARTUPDLY_SHIFT); // Recommended settings
+    VDAC0->OPA[0].TIMER = (0x000<< _VDAC_OPA_TIMER_SETTLETIME_SHIFT) | (0x05 << _VDAC_OPA_TIMER_WARMUPTIME_SHIFT) | (0x00 << _VDAC_OPA_TIMER_STARTUPDLY_SHIFT); // Recommended settings
     VDAC0->OPA[0].MUX = VDAC_OPA_MUX_RESSEL_RES0 | VDAC_OPA_MUX_GAIN3X | VDAC_OPA_MUX_RESINMUX_VSS | VDAC_OPA_MUX_NEGSEL_OPATAP | VDAC_OPA_MUX_POSSEL_DAC; // Unity gain with DAC as non-inverting input
     VDAC0->OPA[0].OUT = VDAC_OPA_OUT_MAINOUTEN; // Drive the main outp
     VDAC0->OPA[0].CAL = DEVINFO->OPA0CAL7; // Calibration for DRIVESTRENGTH = 0x3, INCBW = 0
@@ -347,17 +352,75 @@ int main()
 
     VDAC0->CMD = VDAC_CMD_CH0EN;    // Enable VDAC0CH0
     while(!(VDAC0->STATUS & VDAC_STATUS_CH0ENS)); // Wait for it to be enabled
-
-    VDAC0->CH0DATA = 1024;
     // ----------------- init DAC ----------------- //
 
     // ----------------- init ADC ----------------- //
 
     // ----------------- init ADC ----------------- //
 
-    // ----------------- init DMA ----------------- //
+    // ----------------- init TIM ----------------- //
+    CMU->HFPERCLKEN1 |= CMU_HFPERCLKEN1_WTIMER1;
+
+    WTIMER1->CTRL = WTIMER_CTRL_RSSCOIST | WTIMER_CTRL_PRESC_DIV1 | WTIMER_CTRL_CLKSEL_PRESCHFPERCLK | WTIMER_CTRL_FALLA_NONE | WTIMER_CTRL_RISEA_NONE | WTIMER_CTRL_DMACLRACT | WTIMER_CTRL_MODE_UP;
+    WTIMER1->TOP = (HFPER_CLOCK_FREQ / (VDAC_FREQ * VDAC_N_SAMPLE)) - 1;
+    // ----------------- init TIM ----------------- //
 
     // ----------------- init DMA ----------------- //
+    pusSineBuffer = (uint16_t *)malloc(4 * sizeof(uint16_t));
+
+    if(!pusSineBuffer)
+        while(1);
+
+    uint16_t ubBuf[VDAC_N_SAMPLE];
+
+    for(uint8_t ubNSample = 0; ubNSample < VDAC_N_SAMPLE; ubNSample++)
+        ubBuf[ubNSample] = 2047 + (2048 * cos(((2.f*3.14159f)/VDAC_N_SAMPLE) * ubNSample));
+
+    memcpy(pusSineBuffer, ubBuf, VDAC_N_SAMPLE * sizeof(uint16_t));
+
+    ldma_ch_disable(VDAC_DMA_CH);
+    ldma_ch_peri_req_disable(VDAC_DMA_CH);
+    ldma_ch_req_clear(VDAC_DMA_CH);
+
+    ldma_ch_config(VDAC_DMA_CH, LDMA_CH_REQSEL_SOURCESEL_WTIMER1 | LDMA_CH_REQSEL_SIGSEL_WTIMER1UFOF, LDMA_CH_CFG_SRCINCSIGN_POSITIVE, LDMA_CH_CFG_DSTINCSIGN_DEFAULT, LDMA_CH_CFG_ARBSLOTS_DEFAULT, 0);
+
+    pDMADescriptor[0].CTRL = LDMA_CH_CTRL_DSTMODE_ABSOLUTE | LDMA_CH_CTRL_SRCMODE_ABSOLUTE | LDMA_CH_CTRL_DSTINC_NONE | LDMA_CH_CTRL_SIZE_HALFWORD | LDMA_CH_CTRL_SRCINC_ONE | LDMA_CH_CTRL_REQMODE_BLOCK | LDMA_CH_CTRL_BLOCKSIZE_UNIT1 | (((VDAC_N_SAMPLE - 1) << _LDMA_CH_CTRL_XFERCNT_SHIFT) & _LDMA_CH_CTRL_XFERCNT_MASK) | LDMA_CH_CTRL_STRUCTTYPE_TRANSFER;
+    pDMADescriptor[0].SRC = pusSineBuffer;
+    pDMADescriptor[0].DST = &(VDAC0->CH0DATA);
+    pDMADescriptor[0].LINK = 0x00000000 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+/*
+    pDMADescriptor[1].CTRL =
+    LDMA_CH_CTRL_DSTMODE_ABSOLUTE |
+    LDMA_CH_CTRL_SRCMODE_ABSOLUTE |
+    LDMA_CH_CTRL_DSTINC_NONE |
+    LDMA_CH_CTRL_SIZE_HALFWORD |
+    LDMA_CH_CTRL_SRCINC_NONE |
+    LDMA_CH_CTRL_REQMODE_BLOCK |
+    LDMA_CH_CTRL_BLOCKSIZE_UNIT1 |
+    ((0 << _LDMA_CH_CTRL_XFERCNT_SHIFT) & _LDMA_CH_CTRL_XFERCNT_MASK) |
+    LDMA_CH_CTRL_STRUCTREQ |
+    LDMA_CH_CTRL_STRUCTTYPE_TRANSFER;
+    pDMADescriptor[1].SRC = pusSineBuffer;
+    pDMADescriptor[1].DST = &(TIMER1->CNT);
+    pDMADescriptor[1].LINK = 0x00000010 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+
+    pDMADescriptor[2].CTRL = LDMA_CH_CTRL_STRUCTTYPE_WRITE;
+    pDMADescriptor[2].IMMVAL = TIMER_CMD_START;
+    pDMADescriptor[2].DST = &(TIMER1->CMD);
+    pDMADescriptor[2].LINK = 0xFFFFFFF4 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+
+    pDMADescriptor[2].CTRL = LDMA_CH_CTRL_STRUCTTYPE_WRITE;
+    pDMADescriptor[2].IMMVAL = TIMER_CMD_START;
+    pDMADescriptor[2].DST = &(TIMER1->CMD);
+    pDMADescriptor[2].LINK = 0xFFFFFFF4 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+*/
+    ldma_ch_peri_req_enable(VDAC_DMA_CH);
+    ldma_ch_enable(VDAC_DMA_CH);
+    ldma_ch_load(VDAC_DMA_CH, pDMADescriptor);
+
+    // ----------------- init DMA ----------------- //
+
+    WTIMER1->CMD |= WTIMER_CMD_START;
 
     while(1)
     {
