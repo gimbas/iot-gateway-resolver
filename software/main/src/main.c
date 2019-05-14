@@ -29,12 +29,16 @@ static void sleep();
 
 static uint32_t get_free_ram();
 
+static volatile uint32_t usTemp;
+static volatile uint32_t usADC1;
+
 static void get_device_name(char *pszDeviceName, uint32_t ulDeviceNameSize);
 static uint16_t get_device_revision();
 
 // Variables
 static uint16_t *pusSineBuffer = NULL;
-static ldma_descriptor_t __attribute__ ((aligned (4))) pDMADescriptor[1];
+static ldma_descriptor_t __attribute__ ((aligned (4))) pVDACDMADescriptor[3];
+static ldma_descriptor_t __attribute__ ((aligned (4))) pADCDMADescriptor[1];
 
 // ISRs
 //void _acmp0_1_isr()
@@ -332,6 +336,7 @@ int main()
     #define VDAC_FREQ 5000
     #define VDAC_N_SAMPLE 64
     #define VDAC_DMA_CH 12
+    #define ADC_DMA_CH 11
 
     // ----------------- init DAC ----------------- //
     CMU->HFPERCLKEN1 |= CMU_HFPERCLKEN1_VDAC0;
@@ -355,6 +360,24 @@ int main()
     // ----------------- init DAC ----------------- //
 
     // ----------------- init ADC ----------------- //
+    CMU->HFPERCLKEN0 |= CMU_HFPERCLKEN0_ADC0;
+    CMU->HFPERCLKEN0 |= CMU_HFPERCLKEN0_ADC1;
+
+    CMU->ADCCTRL = CMU_ADCCTRL_ADC0CLKINV | CMU_ADCCTRL_ADC0CLKSEL_AUXHFRCO | (3 << _CMU_ADCCTRL_ADC0CLKDIV_SHIFT) | CMU_ADCCTRL_ADC1CLKINV | CMU_ADCCTRL_ADC1CLKSEL_AUXHFRCO | (3 << _CMU_ADCCTRL_ADC1CLKDIV_SHIFT);
+
+    cmu_update_clocks();
+
+    // ADC_CLK is 36 MHz
+    // adc_sar_clk is 1 MHz (ADC_CLK / (PRESC + 1)) PRESC = 79
+    // TIMEBASE period is 1 us (1 MHz) (ADC_CLK / (TIMEBASE + 1)) TIMEBASE = 7
+    ADC1->CTRL = ADC_CTRL_CHCONREFWARMIDLE_KEEPPREV | ADC_CTRL_CHCONMODE_MAXSETTLE | ADC_CTRL_OVSRSEL_X2 | (7 << _ADC_CTRL_TIMEBASE_SHIFT) | (35 << _ADC_CTRL_PRESC_SHIFT) | ADC_CTRL_ADCCLKMODE_SYNC | ADC_CTRL_WARMUPMODE_KEEPADCWARM;
+
+    ADC1->SINGLECTRL = ADC_SINGLECTRL_AT_8CYCLES | ADC_SINGLECTRL_NEGSEL_VSS | ADC_SINGLECTRL_POSSEL_APORT0XCH5 | ADC_SINGLECTRL_REF_2V5 | ADC_SINGLECTRL_RES_12BIT;
+    ADC1->SINGLECTRLX = ADC_SINGLECTRLX_FIFOOFACT_OVERWRITE;
+    ADC1->CAL &= ~(_ADC_CAL_SINGLEGAIN_MASK | _ADC_CAL_SINGLEOFFSET_MASK | _ADC_CAL_SINGLEOFFSETINV_MASK);
+    ADC1->CAL |= (DEVINFO->ADC1CAL0 & 0x7FFF0000) >> 16; // Calibration for 2V5 reference
+    ADC1->BIASPROG = (ADC1->BIASPROG & ~_ADC_BIASPROG_ADCBIASPROG_MASK) | ADC_BIASPROG_GPBIASACC_HIGHACC;
+    ADC0->BIASPROG = (ADC1->BIASPROG & ~_ADC_BIASPROG_ADCBIASPROG_MASK) | ADC_BIASPROG_GPBIASACC_HIGHACC;
 
     // ----------------- init ADC ----------------- //
 
@@ -384,39 +407,43 @@ int main()
 
     ldma_ch_config(VDAC_DMA_CH, LDMA_CH_REQSEL_SOURCESEL_WTIMER1 | LDMA_CH_REQSEL_SIGSEL_WTIMER1UFOF, LDMA_CH_CFG_SRCINCSIGN_POSITIVE, LDMA_CH_CFG_DSTINCSIGN_DEFAULT, LDMA_CH_CFG_ARBSLOTS_DEFAULT, 0);
 
-    pDMADescriptor[0].CTRL = LDMA_CH_CTRL_DSTMODE_ABSOLUTE | LDMA_CH_CTRL_SRCMODE_ABSOLUTE | LDMA_CH_CTRL_DSTINC_NONE | LDMA_CH_CTRL_SIZE_HALFWORD | LDMA_CH_CTRL_SRCINC_ONE | LDMA_CH_CTRL_REQMODE_BLOCK | LDMA_CH_CTRL_BLOCKSIZE_UNIT1 | (((VDAC_N_SAMPLE - 1) << _LDMA_CH_CTRL_XFERCNT_SHIFT) & _LDMA_CH_CTRL_XFERCNT_MASK) | LDMA_CH_CTRL_STRUCTTYPE_TRANSFER;
-    pDMADescriptor[0].SRC = pusSineBuffer;
-    pDMADescriptor[0].DST = &(VDAC0->CH0DATA);
-    pDMADescriptor[0].LINK = 0x00000000 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
-/*
-    pDMADescriptor[1].CTRL =
-    LDMA_CH_CTRL_DSTMODE_ABSOLUTE |
-    LDMA_CH_CTRL_SRCMODE_ABSOLUTE |
-    LDMA_CH_CTRL_DSTINC_NONE |
-    LDMA_CH_CTRL_SIZE_HALFWORD |
-    LDMA_CH_CTRL_SRCINC_NONE |
-    LDMA_CH_CTRL_REQMODE_BLOCK |
-    LDMA_CH_CTRL_BLOCKSIZE_UNIT1 |
-    ((0 << _LDMA_CH_CTRL_XFERCNT_SHIFT) & _LDMA_CH_CTRL_XFERCNT_MASK) |
-    LDMA_CH_CTRL_STRUCTREQ |
-    LDMA_CH_CTRL_STRUCTTYPE_TRANSFER;
-    pDMADescriptor[1].SRC = pusSineBuffer;
-    pDMADescriptor[1].DST = &(TIMER1->CNT);
-    pDMADescriptor[1].LINK = 0x00000010 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+    pVDACDMADescriptor[0].CTRL = LDMA_CH_CTRL_DSTMODE_ABSOLUTE | LDMA_CH_CTRL_SRCMODE_ABSOLUTE | LDMA_CH_CTRL_DSTINC_NONE | LDMA_CH_CTRL_SIZE_HALFWORD | LDMA_CH_CTRL_SRCINC_ONE | LDMA_CH_CTRL_REQMODE_BLOCK | LDMA_CH_CTRL_BLOCKSIZE_UNIT1 | (((VDAC_N_SAMPLE - 1) << _LDMA_CH_CTRL_XFERCNT_SHIFT) & _LDMA_CH_CTRL_XFERCNT_MASK) | LDMA_CH_CTRL_STRUCTTYPE_TRANSFER;
+    pVDACDMADescriptor[0].SRC = pusSineBuffer;
+    pVDACDMADescriptor[0].DST = &VDAC0->CH0DATA;
+    pVDACDMADescriptor[0].LINK = 0x00000010 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
 
-    pDMADescriptor[2].CTRL = LDMA_CH_CTRL_STRUCTTYPE_WRITE;
-    pDMADescriptor[2].IMMVAL = TIMER_CMD_START;
-    pDMADescriptor[2].DST = &(TIMER1->CMD);
-    pDMADescriptor[2].LINK = 0xFFFFFFF4 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+    pVDACDMADescriptor[1].CTRL = LDMA_CH_CTRL_STRUCTTYPE_WRITE;
+    pVDACDMADescriptor[1].IMMVAL = ADC_CMD_SINGLESTART;
+    pVDACDMADescriptor[1].DST = (void *)&ADC1->CMD;
+    pVDACDMADescriptor[1].LINK = 0x00000010 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
 
-    pDMADescriptor[2].CTRL = LDMA_CH_CTRL_STRUCTTYPE_WRITE;
-    pDMADescriptor[2].IMMVAL = TIMER_CMD_START;
-    pDMADescriptor[2].DST = &(TIMER1->CMD);
-    pDMADescriptor[2].LINK = 0xFFFFFFF4 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
-*/
+    pVDACDMADescriptor[2].CTRL = LDMA_CH_CTRL_STRUCTTYPE_WRITE;
+    pVDACDMADescriptor[2].IMMVAL = 0x55;
+    pVDACDMADescriptor[2].DST = &usTemp;
+    pVDACDMADescriptor[2].LINK = 0xFFFFFFE0 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+
+    // each descriptor is 4 words 1 word = 4 bytes, each descriptor step is +-16 (in this case 2 * 16 = -32 = 0xFFFFFFE0)
+
+    ldma_ch_disable(ADC_DMA_CH);
+    ldma_ch_peri_req_disable(ADC_DMA_CH);
+    ldma_ch_req_clear(ADC_DMA_CH);
+
+    ldma_ch_config(ADC_DMA_CH, LDMA_CH_REQSEL_SOURCESEL_ADC1 | LDMA_CH_REQSEL_SIGSEL_ADC1SINGLE, LDMA_CH_CFG_SRCINCSIGN_POSITIVE, LDMA_CH_CFG_DSTINCSIGN_DEFAULT, LDMA_CH_CFG_ARBSLOTS_DEFAULT, 0);
+
+    pADCDMADescriptor[0].CTRL = LDMA_CH_CTRL_DSTMODE_ABSOLUTE | LDMA_CH_CTRL_SRCMODE_ABSOLUTE | LDMA_CH_CTRL_DSTINC_NONE | LDMA_CH_CTRL_SIZE_HALFWORD | LDMA_CH_CTRL_SRCINC_ONE | LDMA_CH_CTRL_REQMODE_BLOCK | LDMA_CH_CTRL_BLOCKSIZE_UNIT1 | (((VDAC_N_SAMPLE - 1) << _LDMA_CH_CTRL_XFERCNT_SHIFT) & _LDMA_CH_CTRL_XFERCNT_MASK) | LDMA_CH_CTRL_STRUCTTYPE_TRANSFER;
+    pADCDMADescriptor[0].SRC = (void *)&ADC1->SINGLEDATA;
+    pADCDMADescriptor[0].DST = &(usADC1);
+    pADCDMADescriptor[0].LINK = 0x00000000 | LDMA_CH_LINK_LINK | LDMA_CH_LINK_LINKMODE_RELATIVE;
+
+    // each descriptor is 4 words 1 word = 4 bytes, each descriptor step is +-16 (in this case 2 * 16 = -32 = 0xFFFFFFE0)
+
     ldma_ch_peri_req_enable(VDAC_DMA_CH);
     ldma_ch_enable(VDAC_DMA_CH);
-    ldma_ch_load(VDAC_DMA_CH, pDMADescriptor);
+    ldma_ch_load(VDAC_DMA_CH, pVDACDMADescriptor);
+
+    ldma_ch_peri_req_enable(ADC_DMA_CH);
+    ldma_ch_enable(ADC_DMA_CH);
+    ldma_ch_load(ADC_DMA_CH, pADCDMADescriptor);
 
     // ----------------- init DMA ----------------- //
 
@@ -433,13 +460,13 @@ int main()
 
         if(g_ullSystemTick > (ullLastTaskTime + 1000))
         {
-
+            DBGPRINTLN_CTX("usADC1 = %lu" , usADC1);
             ullLastTaskTime = g_ullSystemTick;
         }
 
         static uint64_t ullLastSwoPrint = 0;
 
-        if(g_ullSystemTick > (ullLastSwoPrint + 1000))
+        if(g_ullSystemTick > (ullLastSwoPrint + 10000))
         {
 
             DBGPRINTLN_CTX("ADC Temp: %.2f", adc_get_temperature());
