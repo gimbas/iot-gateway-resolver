@@ -86,7 +86,7 @@ void gpio_init()
                       | GPIO_P_MODEL_MODE5_DISABLED                 // GSM_DTR
                       | GPIO_P_MODEL_MODE6_DISABLED                 // BAT_STDBY
                       | GPIO_P_MODEL_MODE7_DISABLED;                // BAT_CHRG
-    GPIO->P[2].MODEH  = GPIO_P_MODEH_MODE8_DISABLED                 // US0_CS_WIFI - Location 2
+    GPIO->P[2].MODEH  = GPIO_P_MODEH_MODE8_PUSHPULL                 // US0_CS_WIFI - Location 2
                       | GPIO_P_MODEH_MODE9_DISABLED                 // US0_CLK_WIFI - Location 2
                       | GPIO_P_MODEH_MODE10_DISABLED                // US0_MISO_WIFI - Location 2
                       | GPIO_P_MODEH_MODE11_DISABLED                // US0_MOSI_WIFI - Location 2

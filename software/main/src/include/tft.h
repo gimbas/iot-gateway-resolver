@@ -3,6 +3,7 @@
 
 #include <em_device.h>
 #include <stdarg.h>
+#include "lizard_math.h"
 #include "ft6x36.h"
 #include "ili9488.h"
 #include "printf.h"
