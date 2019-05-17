@@ -6,21 +6,27 @@ static ldma_descriptor_t __attribute__ ((aligned (4))) pResolverVDACDMADescripto
 static ldma_descriptor_t __attribute__ ((aligned (4))) pResolverADCDMADescriptor[3];
 
 static volatile uint32_t ulResolverCalibrate = 1;
+static volatile uint16_t usResolverMaxRead = 0;
+static volatile uint16_t usResolverTop = RESOLVER_DEFAULT_TOP;
+static volatile uint16_t usResolverOffset = RESOLVER_DEFAULT_OFFSET;
+static volatile float fResolverAmplitude = RESOLVER_DEFAULT_AMPLITUDE;
+
 static volatile uint32_t ulResolverDataAvailable = 1;
-static volatile int16_t usResolverMaxRead = 0;
-static volatile int16_t usResolverTop = 0;
+
 static volatile uint32_t ulResolverSinSample = 0;
 static volatile uint32_t ulResolverCosSample = 0;
-static volatile int16_t ulResolverAbsoluteAngle = 0;
-static volatile float fResolverAmplitude = 1;
 
+static volatile int16_t sResolverSine = 0;
+static volatile int16_t sResolverCosine = 0;
+
+static volatile int16_t sResolverAbsoluteAngle = 0;
 
 void resolver_init()
 {
 // ----------------- init DAC ----------------- //
     CMU->HFPERCLKEN1 |= CMU_HFPERCLKEN1_VDAC0;
 
-    VDAC0->CTRL = VDAC_CTRL_WARMUPMODE_KEEPINSTANDBY | (0x23 << _VDAC_CTRL_PRESC_SHIFT) | VDAC_CTRL_REFSEL_2V5LN;  // VDAC Keep in Stdby, DAC_CLK = HFPERCLK / 36, 2.5V low noise Ref
+    VDAC0->CTRL = VDAC_CTRL_WARMUPMODE_KEEPINSTANDBY | (0x23 << _VDAC_CTRL_PRESC_SHIFT) | VDAC_CTRL_REFSEL_VDD;  // VDAC Keep in Stdby, DAC_CLK = HFPERCLK / 36, 2.5V low noise Ref
     VDAC0->CH0CTRL = VDAC_CH0CTRL_TRIGMODE_SW | VDAC_CH0CTRL_CONVMODE_CONTINUOUS; // DACconversion triggered by sw write to data, continuous conversion
 
     VDAC0->CAL = DEVINFO->VDAC0MAINCAL;
@@ -47,13 +53,13 @@ void resolver_init()
 
     cmu_update_clocks();
 
-    ADC0->SCANCTRL = ADC_SCANCTRL_AT_16CYCLES | ADC_SCANCTRL_REF_2V5 | ADC_SCANCTRL_RES_12BIT;
+    ADC0->SCANCTRL = ADC_SCANCTRL_AT_8CYCLES | ADC_SCANCTRL_REF_VDD | ADC_SCANCTRL_RES_OVS;
     ADC0->SCANCTRLX = ADC_SCANCTRLX_FIFOOFACT_OVERWRITE;
     ADC0->SCANMASK = ADC_SCANMASK_SCANINPUTEN_INPUT5 | ADC_SCANMASK_SCANINPUTEN_INPUT4;
     ADC0->SCANINPUTSEL = ADC_SCANINPUTSEL_INPUT0TO7SEL_APORT0CH0TO7;
 
     ADC0->CAL &= ~(_ADC_CAL_SINGLEGAIN_MASK | _ADC_CAL_SINGLEOFFSET_MASK | _ADC_CAL_SINGLEOFFSETINV_MASK);
-    ADC0->CAL |= (DEVINFO->ADC0CAL0 & 0x7FFF0000) >> 16; // Calibration for 2V5 reference
+    ADC0->CAL |= (DEVINFO->ADC0CAL0 & 0x00007FFF); // Calibration for VDD reference
     ADC0->BIASPROG = (ADC0->BIASPROG & ~_ADC_BIASPROG_ADCBIASPROG_MASK) | ADC_BIASPROG_GPBIASACC_HIGHACC;
     ADC1->BIASPROG = (ADC0->BIASPROG & ~_ADC_BIASPROG_ADCBIASPROG_MASK) | ADC_BIASPROG_GPBIASACC_HIGHACC;
 
@@ -61,6 +67,11 @@ void resolver_init()
     // adc_sar_clk is 16 MHz (ADC_CLK / (PRESC + 1)) PRESC = 0
     // TIMEBASE period is 1 us (1 MHz) (ADC_CLK / (TIMEBASE + 1)) TIMEBASE = 15
     ADC0->CTRL = ADC_CTRL_OVSRSEL_X2 | ADC_CTRL_CHCONREFWARMIDLE_KEEPPREV | (15 << _ADC_CTRL_TIMEBASE_SHIFT) | (0 << _ADC_CTRL_PRESC_SHIFT) | ADC_CTRL_ASYNCCLKEN_ALWAYSON | ADC_CTRL_ADCCLKMODE_ASYNC | ADC_CTRL_WARMUPMODE_KEEPADCWARM;
+
+    ADC0->CMD = ADC_CMD_SCANSTART;
+    while(ADC0->STATUS & ADC_STATUS_SCANACT);
+
+    usResolverOffset = ((ADC0->SCANDATA >> 1) + (ADC0->SCANDATA >> 1)) / 2;
 
     // ----------------- init ADC ----------------- //
 
@@ -147,30 +158,26 @@ void resolver_task()
     {
         if(ulResolverCalibrate)
         {
-            if((ulResolverCosSample & 0xFFF) > usResolverMaxRead)
+            if((ulResolverCosSample >> 1) > usResolverMaxRead)
             {
                 usResolverMaxRead *= 0.7;
-                usResolverMaxRead += 0.3 * ulResolverCosSample;
-                usResolverTop = usResolverMaxRead - RESOLVER_OFFSET;
+                usResolverMaxRead += 0.3 * (ulResolverCosSample >> 1);
+                usResolverTop = usResolverMaxRead - usResolverOffset;
             }
-            if((ulResolverSinSample & 0xFFF)  > usResolverMaxRead)
+            if((ulResolverSinSample >> 1)  > usResolverMaxRead)
             {
                 usResolverMaxRead *= 0.7;
-                usResolverMaxRead += 0.3 * ulResolverSinSample;
-                usResolverTop = usResolverMaxRead - RESOLVER_OFFSET;
+                usResolverMaxRead += 0.3 * (ulResolverSinSample >> 1);
+                usResolverTop = usResolverMaxRead - usResolverOffset;
             }
 
             static uint64_t ullCalibrationTime = 0;
-            if((g_ullSystemTick > (ullCalibrationTime + 5000)))
-            {
+            if(g_ullSystemTick > (ullCalibrationTime + 5000))
                 ulResolverCalibrate = 0;
-            }
         }
 
-        int16_t sResolverCosine = CAP(INT16_MIN, INT16_MAX * ((int16_t)(ulResolverSinSample) - RESOLVER_OFFSET) / usResolverTop, INT16_MAX);
-        int16_t sResolverSine = CAP(INT16_MIN, INT16_MAX * ((int16_t)(ulResolverCosSample) - RESOLVER_OFFSET) / usResolverTop, INT16_MAX);
-
-        ulResolverAbsoluteAngle = atan2i16(sResolverSine, sResolverCosine);
+        sResolverCosine = CAP(INT16_MIN, INT16_MAX * ((int16_t)(ulResolverSinSample >> 1) - usResolverOffset) / usResolverTop, INT16_MAX);
+        sResolverSine = CAP(INT16_MIN, INT16_MAX * ((int16_t)(ulResolverCosSample >> 1) - usResolverOffset) / usResolverTop, INT16_MAX);
 
         ulResolverDataAvailable = 0;
     }
@@ -178,5 +185,6 @@ void resolver_task()
 
 int16_t resolver_angle()
 {
-    return ulResolverAbsoluteAngle;
+    sResolverAbsoluteAngle = atan2i16(sResolverSine, sResolverCosine);;
+    return sResolverAbsoluteAngle;
 }

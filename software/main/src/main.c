@@ -342,7 +342,16 @@ int main()
 
         if(g_ullSystemTick > (ullLastTaskTime + 200))
         {
-            DBGPRINTLN("Position Angle = %d", resolver_angle());
+            static float fLastAngle = 0;
+            float fAngle = (float)resolver_angle() * 180.f / (float)INT16_MAX;
+            DBGPRINTLN("Position Angle = %0.2f", fAngle);
+
+            float angleDiff = fAngle - fLastAngle;
+
+            DBGPRINTLN("Angle Diff = %0.2f", angleDiff);
+            DBGPRINTLN("Speed = %0.2f rps", angleDiff / 360.f / 0.2f);
+
+            fLastAngle = fAngle;
             ullLastTaskTime = g_ullSystemTick;
         }
         /* - - - - - - - - Main Tasks - - - - - - - - -*/
