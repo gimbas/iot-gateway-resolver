@@ -20,6 +20,7 @@
 
 // Variables
 
+// Forward declarations
 void resolver_init();
 
 void resolver_task();

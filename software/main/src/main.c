@@ -23,6 +23,7 @@
 #include "usart.h"
 #include "i2c.h"
 #include "resolver.h"
+#include "svpwm.h"
 
 // Defines
 
@@ -224,7 +225,8 @@ int init()
     crc_init(); // Init CRC calculation unit
     //adc_init(); // Init ADCs
     qspi_init(); // Init QSPI memory
-    resolver_init();
+    //resolver_init();
+    svpwm_init();
 
     float fAVDDHighThresh, fAVDDLowThresh;
     float fDVDDHighThresh, fDVDDLowThresh;
@@ -244,7 +246,7 @@ int init()
     DBGPRINTLN_CTX("Device: %s", szDeviceName);
     DBGPRINTLN_CTX("Device Revision: 0x%04X", get_device_revision());
     DBGPRINTLN_CTX("Calibration temperature: %hhu C", (DEVINFO->CAL & _DEVINFO_CAL_TEMP_MASK) >> _DEVINFO_CAL_TEMP_SHIFT);
-    DBGPRINTLN_CTX("Flash Size: %hu KiB", FLASH_SIZE >> 10);
+    DBGPRINTLN_CTX("Flash Size: %hu    GPIO->P[2].DOUT = 0; KiB", FLASH_SIZE >> 10);
     DBGPRINTLN_CTX("RAM Size: %hu KiB", SRAM_SIZE >> 10);
     DBGPRINTLN_CTX("Free RAM: %lu KiB", get_free_ram() >> 10);
     DBGPRINTLN_CTX("Unique ID: %08X-%08X", DEVINFO->UNIQUEH, DEVINFO->UNIQUEL);
@@ -333,8 +335,20 @@ int main()
 
     while(1)
     {
+        for(int32_t i = 0; i < 2000; i++)
+        {
+            float angle = ((float)i / 2000.f) * 2 * F_PI;
+
+            //TIMER0->CC[0].CCVB = TIMER0->TOP * ((cosf(angle) + 1) / 2);
+            GPIO->P[2].DOUT = BIT(8);
+            svpwm_set(cosf(angle), sinf(angle));
+            GPIO->P[2].DOUT = 0;
+
+            delay_ms(1);
+        }
+
         /* - - - - - - - - Library Tasks - - - - - - - - -*/
-        resolver_task();
+        //resolver_task();
         /* - - - - - - - - Library Tasks - - - - - - - - -*/
 
         /* - - - - - - - - Main Tasks - - - - - - - - -*/
@@ -342,16 +356,16 @@ int main()
 
         if(g_ullSystemTick > (ullLastTaskTime + 200))
         {
-            static float fLastAngle = 0;
-            float fAngle = (float)resolver_angle() * 180.f / (float)INT16_MAX;
-            DBGPRINTLN("Position Angle = %0.2f", fAngle);
+            //static float fLastAngle = 0;
+            //float fAngle = (float)resolver_angle() * 180.f / (float)INT16_MAX;
+            //DBGPRINTLN("Position Angle = %0.2f", fAngle);
 
-            float angleDiff = fAngle - fLastAngle;
+            //float angleDiff = fAngle - fLastAngle;
 
-            DBGPRINTLN("Angle Diff = %0.2f", angleDiff);
-            DBGPRINTLN("Speed = %0.2f rps", angleDiff / 360.f / 0.2f);
+            //DBGPRINTLN("Angle Diff = %0.2f", angleDiff);
+            //DBGPRINTLN("Speed = %0.2f rps", angleDiff / 360.f / 0.2f);
 
-            fLastAngle = fAngle;
+            //fLastAngle = fAngle;
             ullLastTaskTime = g_ullSystemTick;
         }
         /* - - - - - - - - Main Tasks - - - - - - - - -*/

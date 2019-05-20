@@ -34,12 +34,12 @@ void gpio_init()
     // Port A
     GPIO->P[0].CTRL   = GPIO_P_CTRL_DRIVESTRENGTHALT_STRONG | (6 << _GPIO_P_CTRL_SLEWRATEALT_SHIFT)
                       | GPIO_P_CTRL_DRIVESTRENGTH_STRONG | (6 << _GPIO_P_CTRL_SLEWRATE_SHIFT);
-    GPIO->P[0].MODEL  = GPIO_P_MODEL_MODE0_DISABLED                 // US3_MOSI_RFM - Location 0
-                      | GPIO_P_MODEL_MODE1_DISABLED                 // US3_MISO_RFM - Location 0
-                      | GPIO_P_MODEL_MODE2_DISABLED                 // US3_CLK_RFM - Location 0
-                      | GPIO_P_MODEL_MODE3_DISABLED                 // US3_CS_RFM - Location 0
-                      | GPIO_P_MODEL_MODE4_DISABLED                 // RFM_RESET
-                      | GPIO_P_MODEL_MODE5_DISABLED                 // NR
+    GPIO->P[0].MODEL  = GPIO_P_MODEL_MODE0_PUSHPULL                 // US3_MOSI_RFM - Location 0
+                      | GPIO_P_MODEL_MODE1_PUSHPULL                 // US3_MISO_RFM - Location 0
+                      | GPIO_P_MODEL_MODE2_PUSHPULL                 // US3_CLK_RFM - Location 0
+                      | GPIO_P_MODEL_MODE3_PUSHPULL                 // US3_CS_RFM - Location 0
+                      | GPIO_P_MODEL_MODE4_PUSHPULL                 // RFM_RESET
+                      | GPIO_P_MODEL_MODE5_PUSHPULL                 // NR
                       | GPIO_P_MODEL_MODE6_DISABLED                 // RFM_IRQ
                       | GPIO_P_MODEL_MODE7_DISABLED;                // GSM_STATUS
     GPIO->P[0].MODEH  = GPIO_P_MODEH_MODE8_DISABLED                 // GSM_RF_SYNC

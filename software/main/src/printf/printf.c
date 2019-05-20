@@ -335,7 +335,7 @@ static size_t _ftoa(out_fct_type out, char* buffer, size_t idx, size_t maxlen, d
     }
     if (len < PRINTF_FTOA_BUFFER_SIZE) {
       // add decimal
-      buf[len++] = '.';
+      buf[len++] = FLOAT_POINT;
     }
   }
 
@@ -449,7 +449,7 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
 
     // evaluate precision field
     precision = 0U;
-    if (*format == '.') {
+    if (*format == FLOAT_POINT) {
       flags |= FLAGS_PRECISION;
       format++;
       if (_is_digit(*format)) {
