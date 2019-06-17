@@ -25,6 +25,7 @@
 #include "resolver.h"
 #include "svpwm.h"
 #include "sk9822_apa102.h"
+//#include "arm_math.h"
 
 // Defines
 
@@ -227,8 +228,8 @@ int init()
     //adc_init(); // Init ADCs
     qspi_init(); // Init QSPI memory
     //resolver_init();
-    //svpwm_init();
-    sk9822_apa102_init();
+    svpwm_init();
+    //sk9822_apa102_init();
 
     float fAVDDHighThresh, fAVDDLowThresh;
     float fDVDDHighThresh, fDVDDLowThresh;
@@ -241,7 +242,7 @@ int init()
     fDVDDHighThresh = fDVDDLowThresh + 0.026f; // Hysteresis from datasheet
     fIOVDDHighThresh = fIOVDDLowThresh + 0.026f; // Hysteresis from datasheet
 
-    usart3_init(18000000, 0, USART_SPI_MSB_FIRST, 0, 0, 0); // SPI3 at 9MHz on Location 0 MISO-PA1 MOSI-PA0 CLK-PA2 RFM
+    usart3_init(100000, 0, USART_SPI_MSB_FIRST, 0, 0, 0); // SPI3 at 9MHz on Location 0 MISO-PA1 MOSI-PA0 CLK-PA2 RFM
 
     char szDeviceName[32];
 
@@ -340,24 +341,24 @@ int main()
     while(1)
     {
 
-        /*
-        for(int32_t i = 0; i < 1500; i++)
+
+        for(int32_t i = 0; i < 1400; i++)
         {
             float angle = ((float)i / 1500.f) * 2 * F_PI;
 
             //TIMER0->CC[0].CCVB = TIMER0->TOP * ((cosf(angle) + 1) / 2);
             svpwm_set(cosf(angle), sinf(angle));
         }
-        */
+
 
         /* - - - - - - - - Library Tasks - - - - - - - - -*/
         //resolver_task();
         /* - - - - - - - - Library Tasks - - - - - - - - -*/
 
         /* - - - - - - - - Main Tasks - - - - - - - - -*/
-        static uint64_t ullLastTaskTime = 0;
-
-        if(g_ullSystemTick > (ullLastTaskTime + 50))
+        //static uint64_t ullLastTaskTime = 0;
+/*
+        if(g_ullSystemTick > (ullLastTaskTime + 250))
         {
             static uint8_t ubLoop = 0;
 
@@ -379,11 +380,11 @@ int main()
                 break;
 
             case 3:
-                sk9822_apa102_set_color(0, 0x1F, 0x00, 0x00, 0x00, 1);
+                sk9822_apa102_set_color(0, 0x1F, 0x4F, 0xFF, 0xFF, 1);
                 ubLoop++;
                 break;
 
-            case 40:
+            case 4:
                 ubLoop = 0;
                 break;
 
@@ -404,7 +405,7 @@ int main()
             //fLastAngle = fAngle;
             ullLastTaskTime = g_ullSystemTick;
         }
-
+*/
         /* - - - - - - - - Main Tasks - - - - - - - - -*/
 
         /* - - - - - - - - Button Routines - - - - - - - - -*/
